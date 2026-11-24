@@ -21,6 +21,13 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Ekran görüntüsü
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ekran
+          path: screenshot.png
+          if-no-files-found: ignore
       - name: Durumu kaydet
         run: |
           git config user.name "takip-bot"
