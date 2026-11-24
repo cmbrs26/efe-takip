@@ -1,0 +1,29 @@
+name: efe-takip
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # her 10 dakikada bir
+  workflow_dispatch:          # elle de çalıştırılabilir
+permissions:
+  contents: write
+concurrency:
+  group: efe-takip
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests playwright
+      - run: python tracker.py
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Durumu kaydet
+        run: |
+          git config user.name "takip-bot"
+          git config user.email "takip-bot@users.noreply.github.com"
+          git add state.json
+          git diff --staged --quiet || (git commit -m "durum güncellendi" && git push)
