@@ -64,6 +64,30 @@ def html_to_text(html):
     return re.sub(r"<[^>]+>", " ", html)
 
 
+DEBUG = os.environ.get("DEBUG") == "1"  # herkese açık günlükte kişisel veri çıkmasın diye varsayılan kapalı
+
+
+def load_cookies():
+    raw = os.environ.get("SESSION_COOKIES", "").strip()
+    if not raw:
+        return []
+    out = []
+    for c in json.loads(raw):
+        ck = dict(name=c["name"], value=c["value"], path=c.get("path", "/"),
+                  secure=bool(c.get("secure", True)), httpOnly=bool(c.get("httpOnly", False)))
+        if c.get("domain"):
+            ck["domain"] = c["domain"]
+        else:
+            ck["url"] = URL
+        ss = str(c.get("sameSite", "")).lower()
+        ck["sameSite"] = {"no_restriction": "None", "none": "None", "strict": "Strict"}.get(ss, "Lax")
+        exp = c.get("expirationDate") or c.get("expires")
+        if exp and not c.get("session"):
+            ck["expires"] = float(exp)
+        out.append(ck)
+    return out
+
+
 def render():
     from playwright.sync_api import sync_playwright
 
@@ -74,23 +98,26 @@ def render():
                 locale="tr-TR", timezone_id="Europe/Istanbul", viewport={"width": 1366, "height": 2000},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                            "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
+            cookies = load_cookies()
+            if cookies:
+                ctx.add_cookies(cookies)
+            ls = os.environ.get("SESSION_LOCALSTORAGE", "").strip()
+            if ls:
+                ctx.add_init_script(
+                    "(d=>{for(const k in d){try{localStorage.setItem(k,d[k])}catch(e){}}})(%s)" % json.dumps(json.loads(ls)))
             page = ctx.new_page()
-            seen = []
-            page.on("response", lambda r: seen.append((r.status, r.request.resource_type, r.url)))
             page.goto(URL, wait_until="domcontentloaded", timeout=60000)
             try:
                 page.wait_for_selector("text=Geçmiş işlemler", timeout=45000)
                 page.wait_for_timeout(5000)  # tablolar geç yüklenebilir
-            except Exception as e:
-                print("Bekleme zaman aşımı:", str(e).splitlines()[0])
-            print("Sayfa başlığı:", page.title(), "| adres:", page.url)
-            for st, kind, u in seen:
-                if kind in ("xhr", "fetch", "document") or st >= 400:
-                    print("  istek:", st, kind, u[:150])
-            try:
-                page.screenshot(path="screenshot.png", full_page=True)
             except Exception:
-                pass
+                print("Bekleme zaman aşımı: 'Geçmiş işlemler' görünmedi")
+            if DEBUG:
+                print("Sayfa başlığı:", page.title())
+                try:
+                    page.screenshot(path="screenshot.png", full_page=True)
+                except Exception:
+                    pass
             txt = page.inner_text("body")
             browser.close()
             return txt
@@ -105,25 +132,30 @@ def render():
 
 
 def fetch():
-    try:
-        r = requests.get(URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
-        print("Düz istek:", r.status_code, len(r.text), "karakter")
-        if r.ok:
-            parsed = parse(html_to_text(r.text))
-            if parsed is not None:
-                print("Düz istekle okundu")
-                return parsed
-    except requests.RequestException as e:
-        print("Düz istek hatası:", e)
-    print("Tarayıcıyla deneniyor...")
+    has_session = bool(os.environ.get("SESSION_COOKIES") or os.environ.get("SESSION_LOCALSTORAGE"))
+    if not has_session:  # oturum yoksa düz istek denenir
+        try:
+            r = requests.get(URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+            if r.ok:
+                parsed = parse(html_to_text(r.text))
+                if parsed is not None:
+                    return parsed
+        except requests.RequestException:
+            pass
+    print("Tarayıcıyla açılıyor...")
     text = render()
     parsed = parse(text)
     if parsed is None:
-        print("--- OKUNAN SAYFA METNİ (ilk 2500 karakter) ---")
-        print(norm(text)[:2500])
-        print("--- SON ---")
+        t = norm(text)
+        if "Giriş Yap" in t and "Toplam değer" not in t:
+            raise RuntimeError("Oturum geçersiz ya da süresi dolmuş: çerezleri (SESSION_COOKIES) yenile")
+        print("Sayfa beklenen biçimde okunamadı.")
+        if DEBUG:
+            print("--- OKUNAN SAYFA METNİ (ilk 2500 karakter) ---")
+            print(t[:2500])
+            print("--- SON ---")
     else:
-        print("Tarayıcıyla okundu")
+        print("Sayfa okundu")
     return parsed
 
 
