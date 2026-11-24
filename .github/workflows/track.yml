@@ -25,5 +25,6 @@ jobs:
         run: |
           git config user.name "takip-bot"
           git config user.email "takip-bot@users.noreply.github.com"
+          [ -f state.json ] || exit 0
           git add state.json
           git diff --staged --quiet || (git commit -m "durum güncellendi" && git push)
