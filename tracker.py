@@ -73,6 +73,7 @@ def render():
             page = browser.new_page()
             page.goto(URL, wait_until="networkidle", timeout=60000)
             page.wait_for_selector("text=Geçmiş işlemler", timeout=30000)
+            page.wait_for_timeout(5000)  # tablolar geç yüklenebilir
             txt = page.inner_text("body")
             browser.close()
             return txt
@@ -89,13 +90,24 @@ def render():
 def fetch():
     try:
         r = requests.get(URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        print("Düz istek:", r.status_code, len(r.text), "karakter")
         if r.ok:
             parsed = parse(html_to_text(r.text))
             if parsed is not None:
+                print("Düz istekle okundu")
                 return parsed
-    except requests.RequestException:
-        pass
-    return parse(render())  # sayfa JS ile yükleniyorsa gerçek tarayıcı
+    except requests.RequestException as e:
+        print("Düz istek hatası:", e)
+    print("Tarayıcıyla deneniyor...")
+    text = render()
+    parsed = parse(text)
+    if parsed is None:
+        print("--- OKUNAN SAYFA METNİ (ilk 2500 karakter) ---")
+        print(norm(text)[:2500])
+        print("--- SON ---")
+    else:
+        print("Tarayıcıyla okundu")
+    return parsed
 
 
 def send(msg):
