@@ -70,10 +70,27 @@ def render():
     def run():
         with sync_playwright() as p:
             browser = p.chromium.launch()
-            page = browser.new_page()
-            page.goto(URL, wait_until="networkidle", timeout=60000)
-            page.wait_for_selector("text=Geçmiş işlemler", timeout=30000)
-            page.wait_for_timeout(5000)  # tablolar geç yüklenebilir
+            ctx = browser.new_context(
+                locale="tr-TR", timezone_id="Europe/Istanbul", viewport={"width": 1366, "height": 2000},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
+            page = ctx.new_page()
+            seen = []
+            page.on("response", lambda r: seen.append((r.status, r.request.resource_type, r.url)))
+            page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+            try:
+                page.wait_for_selector("text=Geçmiş işlemler", timeout=45000)
+                page.wait_for_timeout(5000)  # tablolar geç yüklenebilir
+            except Exception as e:
+                print("Bekleme zaman aşımı:", str(e).splitlines()[0])
+            print("Sayfa başlığı:", page.title(), "| adres:", page.url)
+            for st, kind, u in seen:
+                if kind in ("xhr", "fetch", "document") or st >= 400:
+                    print("  istek:", st, kind, u[:150])
+            try:
+                page.screenshot(path="screenshot.png", full_page=True)
+            except Exception:
+                pass
             txt = page.inner_text("body")
             browser.close()
             return txt
